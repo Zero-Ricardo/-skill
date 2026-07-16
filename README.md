@@ -54,6 +54,15 @@ python3 .fiction-skills/storyctl/storyctl.py --root . validate
 sources/canon/
 ```
 
+原作正文必须保留在本地，不要提交到本仓库。对于单独保存的本地语料目录，可复制或链接合法持有的章节到故事工程：
+
+```bash
+# 示例：从本地目录逐章复制到当前故事工程
+cp /path/to/local-corpus/*.txt sources/canon/
+```
+
+仓库的 `.gitignore` 默认排除根目录下的 `龙族1-*`、`原作文本`、`raw-data` 及实际故事工程数据。只提交空白模板和工作流代码。
+
 可以直接用自然语言开始，例如：
 
 ```text
@@ -81,6 +90,9 @@ sources/canon/
 storyctl status
 storyctl check-ready-to-plan
 storyctl check-ready-to-write <plan-id>
+storyctl audit-obligations
+storyctl due-obligations --chapter-id <id> [--tag <tag> ...]
+storyctl check-sequence-coverage --coverage <file>
 storyctl validate
 ```
 
@@ -146,6 +158,7 @@ python3 -m unittest discover -s storyctl/tests -v
 - 未确认方案时禁止正式化大纲；
 - 过期方案拒绝批准；
 - 风格包只加载已批准文件；
+- 次要人物故事义务的完整性、唤醒条件和章节序列覆盖；
 - 托管授权、委托批准和质量报告；
 - 批次上限暂停与逐章 Wiki 回写。
 

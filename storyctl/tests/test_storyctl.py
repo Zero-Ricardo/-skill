@@ -68,16 +68,33 @@ class StoryCtlTests(unittest.TestCase):
     def test_context_includes_only_approved_style_files(self):
         self.write("style/profile.md", "# Profile\nApproved cinematic rule.\n")
         self.write("style/draft.md", "# Draft\nMust not leak.\n")
+        self.write("wiki/characters/hero.md", "# Hero\nCurrent decision model.\n")
         manifest = {
             "schema_version": 1, "revision": 1, "source_scope": [],
             "approved_files": ["profile.md"], "pending_proposals": ["draft.md"],
             "updated_at": None,
         }
         self.write("style/manifest.json", json.dumps(manifest))
-        self.cli("build-context", "--for", "chapter", "--target", "chapter-001")
+        request = self.write("request.json", json.dumps({
+            "wiki_files": ["characters/hero.md"],
+            "style_files": ["profile.md"],
+            "reason": "Plan the hero's next decision",
+        }))
+        self.cli("build-context", "--for", "chapter", "--target", "chapter-001", "--request", str(request))
         context = (self.root / "context/chapter-001.md").read_text()
         self.assertIn("Approved cinematic rule", context)
+        self.assertIn("Current decision model", context)
         self.assertNotIn("Must not leak", context)
+
+        rejected = self.write("request-unapproved.json", json.dumps({"wiki_files": [], "style_files": ["draft.md"]}))
+        self.assertNotEqual(self.cli("build-context", "--for", "chapter", "--target", "rejected", "--request", str(rejected), ok=False).returncode, 0)
+
+    def test_context_budget_rejects_oversized_pack(self):
+        self.write("wiki/characters/hero.md", "# Hero\n" + ("x" * 500))
+        request = self.write("request-large.json", json.dumps({"wiki_files": ["characters/hero.md"], "style_files": []}))
+        result = self.cli("build-context", "--for", "chapter", "--target", "large", "--request", str(request), "--max-chars", "100", ok=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("narrow the request", result.stderr)
 
     def test_style_approval_is_recorded(self):
         self.write("style/profile.md", "# Profile\nCandidate.\n")
@@ -132,6 +149,45 @@ class StoryCtlTests(unittest.TestCase):
         managed = json.loads(self.cli("managed-status").stdout)
         self.assertEqual(managed["completed_chapters"], ["arc-01-ch01"])
         self.assertEqual(managed["pause_reason"], "batch_limit")
+
+    def test_supporting_character_obligations_are_audited_and_scheduled(self):
+        self.write("wiki/characters/support.md", "# Supporting character\nObligations: O-001, O-002\n")
+        ledger = {
+            "schema_version": 1,
+            "obligations": [
+                {
+                    "id": "O-001", "title": "Hidden allegiance", "type": "subplot", "status": "due",
+                    "carrier_pages": ["characters/support.md"], "related_characters": ["hero"],
+                    "reader_expectation": "The supporting character has another agenda", "open_questions": ["Who do they serve?"],
+                    "last_touched": "ch-01", "next_review": "ch-03", "wake_on": ["leak"],
+                    "allowed": ["reinforce"], "forbidden": ["resolve without approval"],
+                    "sources": ["canon:ch-01"], "resolution_chapter": None,
+                },
+                {
+                    "id": "O-002", "title": "Old promise", "type": "emotional_debt", "status": "dormant",
+                    "carrier_pages": ["characters/support.md"], "related_characters": ["hero"],
+                    "reader_expectation": "The promise may return", "open_questions": [],
+                    "last_touched": "ch-01", "next_review": "sequence-02", "wake_on": ["homecoming"],
+                    "allowed": ["activate"], "forbidden": [], "sources": ["canon:ch-01"],
+                    "resolution_chapter": None,
+                },
+            ],
+        }
+        self.write("wiki/obligations.json", json.dumps(ledger))
+        self.cli("audit-obligations")
+        due = json.loads(self.cli("due-obligations", "--chapter-id", "ch-03", "--tag", "homecoming").stdout)
+        self.assertEqual(due["must_include"], ["O-001"])
+        self.assertEqual(due["consider"], ["O-002"])
+        missing = self.write("coverage-missing.json", json.dumps({"coverage": []}))
+        self.assertNotEqual(self.cli("check-sequence-coverage", "--coverage", str(missing), ok=False).returncode, 0)
+        coverage = self.write("coverage.json", json.dumps({"coverage": [
+            {"obligation_id": "O-001", "chapter_id": "ch-03", "action": "reinforce"}
+        ]}))
+        self.cli("check-sequence-coverage", "--coverage", str(coverage))
+
+        request = self.write("request-obligation.json", json.dumps({"wiki_files": ["obligations.json"], "style_files": []}))
+        self.cli("build-context", "--for", "chapter", "--target", "ch-03", "--request", str(request))
+        self.assertIn("O-001", (self.root / "context/ch-03.md").read_text())
 
 
 if __name__ == "__main__":

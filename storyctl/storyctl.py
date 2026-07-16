@@ -22,13 +22,14 @@ REQUIRED_DIRS = [
     ".story/receipts", ".story/wiki-updates", "style/observations", "style/proposals",
 ]
 REQUIRED_FILES = [
-    "wiki/current.md", "wiki/timeline.md", "wiki/world.md",
+    "wiki/index.md", "wiki/current.md", "wiki/knowledge.md", "wiki/obligations.json", "wiki/timeline.md", "wiki/world.md",
     "wiki/relationships.md", "wiki/foreshadowing.md", "wiki/questions.md",
     "plans/series.md", "style/manifest.json", "style/profile.md",
     "style/narrative-structure.md", "style/cinematic-scenes.md",
     "style/emotional-rhythm.md", "style/character-voices.md", "style/imagery.md",
     "style/title-system.md", "style/scene-patterns.md", "log.md",
 ]
+CONTEXT_BUDGETS = {"arc": 18000, "sequence": 14000, "chapter": 10000}
 
 
 class WorkflowError(RuntimeError):
@@ -127,6 +128,8 @@ def cmd_init(args: argparse.Namespace) -> None:
                     "pending_proposals": [],
                     "updated_at": None,
                 })
+            elif rel == "wiki/obligations.json":
+                dump(path, {"schema_version": 1, "obligations": []})
             else:
                 path.write_text(f"# {path.stem.replace('-', ' ').title()}\n", encoding="utf-8")
     if not (root / STATE_PATH).exists():
@@ -552,27 +555,65 @@ def cmd_commit_wiki(args: argparse.Namespace) -> None:
 def cmd_build_context(args: argparse.Namespace) -> None:
     s = state(args.root)
     assert_clean_wiki(s)
-    current = (args.root / "wiki/current.md").read_text(encoding="utf-8")
     out = args.root / "context" / f"{args.target}.md"
-    style_sections = []
+    request = {"wiki_files": [], "style_files": [], "reason": "baseline context"}
+    if args.request:
+        request = load(args.request)
+    wiki_files = request.get("wiki_files", [])
+    style_files = request.get("style_files", [])
+    if not isinstance(wiki_files, list) or not isinstance(style_files, list):
+        raise WorkflowError("context request wiki_files and style_files must be lists")
+    sections = []
+    selected = []
+    for rel in ["current.md", "index.md", *wiki_files]:
+        path = Path(str(rel))
+        if path.is_absolute() or ".." in path.parts or path.suffix not in {".md", ".json"}:
+            raise WorkflowError(f"invalid wiki context path: {rel}")
+        full = args.root / "wiki" / path
+        if not full.is_file():
+            raise WorkflowError(f"requested wiki file is missing: {rel}")
+        label = f"wiki/{path.as_posix()}"
+        if label not in selected:
+            selected.append(label)
+            sections.append(f"\n\n## {label}\n\n" + full.read_text(encoding="utf-8"))
     manifest_path = args.root / "style/manifest.json"
-    if manifest_path.is_file():
-        manifest = load(manifest_path)
-        for rel in manifest.get("approved_files", []):
-            path = args.root / "style" / rel
-            if path.is_file():
-                style_sections.append(f"\n\n## Approved style: {rel}\n\n" + path.read_text(encoding="utf-8"))
-    out.write_text(
+    manifest = load(manifest_path) if manifest_path.is_file() else {"approved_files": []}
+    approved_style = set(manifest.get("approved_files", []))
+    for rel in style_files:
+        path = Path(str(rel))
+        if path.is_absolute() or ".." in path.parts or path.suffix != ".md":
+            raise WorkflowError(f"invalid style context path: {rel}")
+        normalized = path.as_posix()
+        if normalized not in approved_style:
+            raise WorkflowError(f"style file is not approved: {rel}")
+        full = args.root / "style" / path
+        if not full.is_file():
+            raise WorkflowError(f"requested style file is missing: {rel}")
+        label = f"style/{normalized}"
+        if label not in selected:
+            selected.append(label)
+            sections.append(f"\n\n## {label}\n\n" + full.read_text(encoding="utf-8"))
+    body = "".join(sections)
+    budget = args.max_chars or CONTEXT_BUDGETS[args.mode]
+    if budget < 1:
+        raise WorkflowError("max-chars must be positive")
+    if len(body) > budget:
+        raise WorkflowError(f"context pack is {len(body)} characters; narrow the request below the {budget} character budget")
+    content = (
         "---\n"
         f"target: {args.target}\nmode: {args.mode}\nwiki_revision: {s['wiki_revision']}\n"
+        f"context_budget: {budget}\n"
         "---\n\n# Planning Context\n\n"
-        + current
+        f"Request reason: {request.get('reason', '')}\n\n"
+        "Selected files:\n"
+        + "".join(f"- {item}\n" for item in selected)
         + "\n\n## Agent checklist\n\n"
-        "- Add only relevant character states, knowledge boundaries, rules, and foreshadowing.\n"
-        "- Cite the corresponding wiki page or source for every hard constraint.\n"
-        + "".join(style_sections),
-        encoding="utf-8",
+        "- Use only relevant character decisions, relationships, knowledge, rules and foreshadowing.\n"
+        "- Cite the corresponding Wiki page or source for every hard constraint.\n"
+        "- Request a targeted Wiki repair if required character motivation is missing.\n"
+        + body
     )
+    out.write_text(content, encoding="utf-8")
     print(out)
 
 
@@ -608,6 +649,128 @@ def cmd_approve_style(args: argparse.Namespace) -> None:
     print(f"approved style revision {manifest['revision']}")
 
 
+def obligation_items(root: Path) -> list[dict]:
+    ledger = load(root / "wiki/obligations.json")
+    items = ledger.get("obligations")
+    if not isinstance(items, list):
+        raise WorkflowError("wiki/obligations.json obligations must be a list")
+    if not all(isinstance(item, dict) for item in items):
+        raise WorkflowError("every story obligation must be an object")
+    return items
+
+
+def obligation_errors(root: Path, items: list[dict]) -> list[str]:
+    errors = []
+    allowed_status = {"dormant", "active", "due", "resolved", "retired", "blocked"}
+    ids = []
+    for item in items:
+        oid = item.get("id")
+        if not isinstance(oid, str) or not oid.startswith("O-"):
+            errors.append("every obligation needs an O- prefixed id")
+            continue
+        ids.append(oid)
+        status = item.get("status")
+        if status not in allowed_status:
+            errors.append(f"{oid}: invalid status {status}")
+        carriers = item.get("carrier_pages", [])
+        if not isinstance(carriers, list) or not carriers:
+            errors.append(f"{oid}: carrier_pages must be a non-empty list")
+        else:
+            for rel in carriers:
+                path = Path(str(rel))
+                if path.is_absolute() or ".." in path.parts or not str(rel).startswith("characters/") or not (root / "wiki" / path).is_file():
+                    errors.append(f"{oid}: missing or invalid carrier page {rel}")
+        if not isinstance(item.get("sources"), list) or not item.get("sources"):
+            errors.append(f"{oid}: at least one source is required")
+        wake_on = item.get("wake_on", [])
+        if not isinstance(wake_on, list):
+            errors.append(f"{oid}: wake_on must be a list")
+        if status in {"active", "due"} and not item.get("next_review") and not wake_on:
+            errors.append(f"{oid}: active/due obligation needs next_review or wake_on")
+        if status == "dormant" and (not item.get("next_review") or not wake_on):
+            errors.append(f"{oid}: dormant obligation needs both next_review and wake_on")
+        if status == "resolved" and not item.get("resolution_chapter"):
+            errors.append(f"{oid}: resolved obligation needs resolution_chapter")
+        if status == "retired" and not item.get("retired_by"):
+            errors.append(f"{oid}: retired obligation needs retired_by decision reference")
+    if len(ids) != len(set(ids)):
+        errors.append("obligation ids must be unique")
+    return errors
+
+
+def cmd_audit_obligations(args: argparse.Namespace) -> None:
+    items = obligation_items(args.root)
+    errors = obligation_errors(args.root, items)
+    if errors:
+        raise WorkflowError("obligation audit failed:\n- " + "\n- ".join(errors))
+    counts = {}
+    for item in items:
+        counts[item["status"]] = counts.get(item["status"], 0) + 1
+    print(json.dumps({"valid": True, "count": len(items), "by_status": counts}, ensure_ascii=False, indent=2))
+
+
+def cmd_due_obligations(args: argparse.Namespace) -> None:
+    items = obligation_items(args.root)
+    errors = obligation_errors(args.root, items)
+    if errors:
+        raise WorkflowError("repair the obligation ledger before querying due items")
+    tags = set(args.tag or [])
+    result = {"must_include": [], "consider": [], "dormant": [], "blocked": []}
+    for item in items:
+        oid = item["id"]
+        status = item["status"]
+        wake_match = bool(tags.intersection(item.get("wake_on", [])))
+        review_match = item.get("next_review") == args.chapter_id
+        if status == "blocked":
+            result["blocked"].append(oid)
+        elif status == "due" or review_match:
+            result["must_include"].append(oid)
+        elif status == "active" and wake_match:
+            result["consider"].append(oid)
+        elif status == "dormant" and wake_match:
+            result["consider"].append(oid)
+        elif status in {"active", "dormant"}:
+            result["dormant"].append(oid)
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+
+
+def cmd_check_sequence_coverage(args: argparse.Namespace) -> None:
+    items = obligation_items(args.root)
+    errors = obligation_errors(args.root, items)
+    if errors:
+        raise WorkflowError("repair the obligation ledger before checking sequence coverage")
+    coverage = load(args.coverage).get("coverage")
+    if not isinstance(coverage, list) or not all(isinstance(x, dict) for x in coverage):
+        raise WorkflowError("coverage file needs a coverage list")
+    by_id = {}
+    allowed_actions = {"mention", "reinforce", "activate", "resolve", "retire", "defer"}
+    coverage_errors = []
+    valid_ids = {item["id"] for item in items}
+    for entry in coverage:
+        oid = entry.get("obligation_id")
+        action = entry.get("action")
+        if oid not in valid_ids:
+            coverage_errors.append(f"unknown obligation id: {oid}")
+            continue
+        if action not in allowed_actions:
+            coverage_errors.append(f"{oid}: invalid coverage action {action}")
+        if not entry.get("chapter_id"):
+            coverage_errors.append(f"{oid}: chapter_id is required")
+        by_id.setdefault(oid, []).append(entry)
+    for item in items:
+        oid = item["id"]
+        if item["status"] == "due" and oid not in by_id:
+            coverage_errors.append(f"{oid}: due obligation is not covered")
+        if item["status"] == "active" and oid not in by_id:
+            coverage_errors.append(f"{oid}: active obligation needs a touch or explicit defer")
+        for entry in by_id.get(oid, []):
+            if entry.get("action") in {"resolve", "retire"} and item.get("forbidden") and not entry.get("approval_decision"):
+                coverage_errors.append(f"{oid}: {entry['action']} requires approval_decision because handling is restricted")
+    if coverage_errors:
+        raise WorkflowError("sequence coverage failed:\n- " + "\n- ".join(coverage_errors))
+    print(json.dumps({"valid": True, "covered_obligations": sorted(by_id)}, ensure_ascii=False, indent=2))
+
+
 def cmd_validate(args: argparse.Namespace) -> None:
     s = state(args.root)
     errors = []
@@ -630,6 +793,10 @@ def cmd_validate(args: argparse.Namespace) -> None:
             errors.append("managed delegation lacks a user decision record")
         for key in ("arc_id", "sequence_id", "chapters", "hard_stops", "permissions"):
             if key not in managed: errors.append(f"managed delegation lacks {key}")
+    try:
+        errors.extend(obligation_errors(args.root, obligation_items(args.root)))
+    except WorkflowError as exc:
+        errors.append(str(exc))
     if errors:
         raise WorkflowError("validation failed:\n- " + "\n- ".join(errors))
     print("workspace valid")
@@ -661,8 +828,11 @@ def parser() -> argparse.ArgumentParser:
     add("managed-disable", cmd_managed_disable)
     q = add("propose-wiki-update", cmd_propose_wiki_update); q.add_argument("chapter_id"); q.add_argument("--patch", type=Path, required=True)
     q = add("commit-wiki", cmd_commit_wiki); q.add_argument("chapter_id")
-    q = add("build-context", cmd_build_context); q.add_argument("--for", dest="mode", choices=["arc", "sequence", "chapter"], required=True); q.add_argument("--target", required=True)
+    q = add("build-context", cmd_build_context); q.add_argument("--for", dest="mode", choices=["arc", "sequence", "chapter"], required=True); q.add_argument("--target", required=True); q.add_argument("--request", type=Path); q.add_argument("--max-chars", type=int)
     q = add("approve-style", cmd_approve_style); q.add_argument("--proposal", required=True); q.add_argument("--file", action="append", required=True)
+    add("audit-obligations", cmd_audit_obligations)
+    q = add("due-obligations", cmd_due_obligations); q.add_argument("--chapter-id", required=True); q.add_argument("--tag", action="append")
+    q = add("check-sequence-coverage", cmd_check_sequence_coverage); q.add_argument("--coverage", type=Path, required=True)
     add("validate", cmd_validate)
     return p
 

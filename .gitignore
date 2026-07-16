@@ -13,3 +13,8 @@ __pycache__/
 /decisions/
 /context/
 /.story/
+
+# Copyrighted source corpora stay local and are never published with the skills.
+/龙族1-*/
+/原作文本/
+/raw-data/

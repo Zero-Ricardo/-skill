@@ -11,13 +11,35 @@ Read [multiline-and-tension.md](references/multiline-and-tension.md) before arc 
 
 ## Start with a gate and context
 
-Run `storyctl check-ready-to-plan`. If blocked, stop and route to `$novel-wiki`. Build or request the appropriate context pack and verify its `wiki_revision` matches current state.
+Run `storyctl check-ready-to-plan`. If blocked, stop and route to `$novel-wiki`.
+
+Read only `wiki/current.md` and `wiki/index.md` first. Identify the characters who will decide or be directly affected, the active relationships, knowledge asymmetries, rules, threads and foreshadowing needed for this planning target. Write a context request following `$novel-wiki`'s context contract, then build the pack with `storyctl build-context --request <file>`. Verify its `wiki_revision` matches current state.
+
+Do not read the full Wiki or all character pages by default. If a required major character lacks a decision model, current arc position or relationship-specific pressure, stop and request a targeted Wiki repair rather than inventing psychology inside the plan.
+
+Query story obligations before planning:
+
+```bash
+storyctl due-obligations --chapter-id <id> [--tag <location-or-thread> ...]
+```
+
+Include returned `must_include` obligations in the context request. Consider `consider` items explicitly; either touch them or preserve their future review point. Do not force a cameo merely because an obligation exists.
 
 Choose one level:
 
 - `arc`: define purpose, conflict, character arcs, independent narrative lines, convergence points, major turns, ending state and foreshadowing strategy. Read `style/profile.md`, `narrative-structure.md` and `emotional-rhythm.md`.
 - `sequence`: divide an approved arc into functional chapters, build a line-progression matrix, and control pacing, revelations, viewpoint distribution and line absence. Also read `style/title-system.md`.
 - `chapter`: define concrete scenes, tension movement, visual and emotional design, viewpoint structure, information release, foreshadowing action and ending resonance. Read relevant `scene-patterns.md` entries and generate title candidates.
+
+At every level, derive action from the Wiki character model:
+
+- the character enters with a concrete want;
+- resistance presses a fear, contradiction, relationship or misconception;
+- the choice follows or meaningfully breaks an established decision pattern;
+- any break requires visible pressure and changes the arc position;
+- consequences update knowledge, relationships or emotional debt.
+
+Do not use personality adjectives as sufficient motivation.
 
 ## Explore before filtering
 
@@ -74,6 +96,18 @@ storyctl delegated-finalize-plan <chapter-id> \
 ```
 
 Do not use delegation for arc or sequence plans. Pause managed mode instead of auto-selecting any option that triggers a hard stop, changes the approved parent outcome, needs a new world rule, or has unresolved low confidence.
+
+## Cover obligations in sequences
+
+Alongside every sequence plan, create a JSON coverage file that maps active or due obligation ids to one or more scheduled chapter touches and an action: `mention`, `reinforce`, `activate`, `resolve`, `retire` or `defer`.
+
+Run:
+
+```bash
+storyctl check-sequence-coverage --coverage <file>
+```
+
+The sequence cannot be finalized while a due obligation is absent, an active obligation lacks a touch or explicit defer action, or a proposed resolution contradicts its forbidden handling. A dormant obligation may remain offstage when its wake condition has not occurred, but must retain a future review point.
 
 ## Finalize the outline
 
