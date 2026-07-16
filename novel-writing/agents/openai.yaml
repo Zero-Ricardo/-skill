@@ -1,0 +1,6 @@
+interface:
+  display_name: "小说章节写作"
+  short_description: "依据批准大纲、故事状态与风格包创作电影化、有张力的多线章节正文"
+  default_prompt: "Use $novel-writing to draft a chapter from its approved outline and current writing context."
+policy:
+  allow_implicit_invocation: false

@@ -1,0 +1,6 @@
+interface:
+  display_name: "小说 Wiki 维护"
+  short_description: "整理原作和批准续写，维护可追溯人物、事件、规则与伏笔状态"
+  default_prompt: "Use $novel-wiki to ingest a chapter, update the story wiki, or build a planning context pack."
+policy:
+  allow_implicit_invocation: false

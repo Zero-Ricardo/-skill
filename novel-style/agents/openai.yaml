@@ -1,0 +1,6 @@
+interface:
+  display_name: "小说风格分析与维护"
+  short_description: "从原作章节提炼并维护叙事结构、电影化场景、情绪、人物声音及标题规律"
+  default_prompt: "Use $novel-style to analyze source chapters and propose evidence-based updates to the project style pack."
+policy:
+  allow_implicit_invocation: false

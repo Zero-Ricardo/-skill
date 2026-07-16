@@ -1,0 +1,6 @@
+interface:
+  display_name: "小说续写流程总控"
+  short_description: "检查小说续写项目状态并严格引导维基、规划、写作及回写阶段"
+  default_prompt: "Use $novel-workflow to inspect this novel project and continue from the next valid workflow step."
+policy:
+  allow_implicit_invocation: true

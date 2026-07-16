@@ -1,0 +1,6 @@
+interface:
+  display_name: "小说剧情规划"
+  short_description: "基于最新故事维基设计篇章与章节方案，并取得结构化用户确认"
+  default_prompt: "Use $novel-planning to propose and confirm an arc, chapter sequence, or chapter outline."
+policy:
+  allow_implicit_invocation: false

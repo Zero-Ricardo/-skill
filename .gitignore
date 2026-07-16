@@ -1,0 +1,15 @@
+.DS_Store
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Keep real story projects and source material out of this workflow repository.
+story-workspace/
+story-workspace.stale-*/
+sources/
+wiki/
+plans/
+drafts/
+decisions/
+context/
+.story/
